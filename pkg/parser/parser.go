@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"bufio"
 	"context"
 	"os"
 	"path/filepath"
@@ -121,54 +122,124 @@ func BuildGraph(repoPath string, opts *Options) (*graph.Graph, error) {
 	}
 
 	// Add symbol nodes and edges after all file nodes exist.
+	// Collect unresolved edges separately — AddEdge drops them since targets don't exist yet.
+	var unresolvedEdges []*graph.Edge
 	for _, out := range outputs {
 		for _, n := range out.result.Nodes {
 			g.AddNode(n)
 		}
 		for _, e := range out.result.Edges {
-			g.AddEdge(e)
+			if strings.HasPrefix(e.ToID, "unresolved:") || strings.HasPrefix(e.ToID, "unresolved-import:") {
+				unresolvedEdges = append(unresolvedEdges, e)
+			} else {
+				g.AddEdge(e)
+			}
 		}
 	}
 
-	resolveCallEdges(g)
 	buildContainmentHierarchy(g, repoPath)
+	resolveEdges(g, unresolvedEdges, repoPath)
 
 	return g, nil
 }
 
-// resolveCallEdges replaces edges whose ToID starts with "unresolved:" with
-// concrete edges pointing to every matching function/method node.
-func resolveCallEdges(g *graph.Graph) {
-	// Build name → []nodeID index from all function/method nodes.
-	nameIndex := make(map[string][]string)
+// resolveEdges resolves all unresolved edge targets (calls, references, method_of, imports).
+func resolveEdges(g *graph.Graph, unresolved []*graph.Edge, repoPath string) {
+	// Build name indexes for resolution.
+	funcIndex := make(map[string][]string)   // name → []nodeID (functions + methods)
+	classIndex := make(map[string][]string)  // name → []nodeID (classes/structs)
+	varIndex := make(map[string][]string)    // name → []nodeID (variables)
 	for _, n := range g.Nodes() {
-		if n.Type == graph.NodeFunction || n.Type == graph.NodeMethod {
-			nameIndex[n.Name] = append(nameIndex[n.Name], n.ID)
+		switch n.Type {
+		case graph.NodeFunction, graph.NodeMethod:
+			funcIndex[n.Name] = append(funcIndex[n.Name], n.ID)
+		case graph.NodeClass:
+			classIndex[n.Name] = append(classIndex[n.Name], n.ID)
+		case graph.NodeVariable:
+			varIndex[n.Name] = append(varIndex[n.Name], n.ID)
 		}
 	}
 
-	var toRemove []*graph.Edge
-	var toAdd []*graph.Edge
+	// Read go.mod for import path resolution.
+	modulePath := readGoModulePath(repoPath)
 
-	for _, e := range g.Edges() {
-		if !strings.HasPrefix(e.ToID, "unresolved:") {
+	// Build dir → file index for Go import resolution.
+	dirFiles := make(map[string][]string) // relative dir → []file node IDs
+	for _, n := range g.NodesByType(graph.NodeFile) {
+		dir := filepath.Dir(n.FilePath)
+		dirFiles[dir] = append(dirFiles[dir], n.ID)
+	}
+
+	for _, e := range unresolved {
+		if g.Node(e.FromID) == nil {
 			continue
 		}
-		toRemove = append(toRemove, e)
-		funcName := strings.TrimPrefix(e.ToID, "unresolved:")
-		for _, targetID := range nameIndex[funcName] {
-			toAdd = append(toAdd, &graph.Edge{
-				FromID: e.FromID,
-				ToID:   targetID,
-				Type:   e.Type,
-			})
+
+		switch {
+		case strings.HasPrefix(e.ToID, "unresolved-import:"):
+			importPath := strings.TrimPrefix(e.ToID, "unresolved-import:")
+			resolveImportEdge(g, e, importPath, modulePath, dirFiles)
+
+		case strings.HasPrefix(e.ToID, "unresolved:"):
+			name := strings.TrimPrefix(e.ToID, "unresolved:")
+			switch e.Type {
+			case graph.EdgeCalls:
+				for _, targetID := range funcIndex[name] {
+					g.AddEdge(&graph.Edge{FromID: e.FromID, ToID: targetID, Type: e.Type})
+				}
+			case graph.EdgeMethodOf:
+				for _, targetID := range classIndex[name] {
+					g.AddEdge(&graph.Edge{FromID: e.FromID, ToID: targetID, Type: e.Type})
+				}
+			case graph.EdgeInherits:
+				for _, targetID := range classIndex[name] {
+					g.AddEdge(&graph.Edge{FromID: e.FromID, ToID: targetID, Type: e.Type})
+				}
+			case graph.EdgeReferences:
+				for _, targetID := range varIndex[name] {
+					g.AddEdge(&graph.Edge{FromID: e.FromID, ToID: targetID, Type: e.Type})
+				}
+				// Also try functions/classes for references.
+				for _, targetID := range funcIndex[name] {
+					g.AddEdge(&graph.Edge{FromID: e.FromID, ToID: targetID, Type: e.Type})
+				}
+				for _, targetID := range classIndex[name] {
+					g.AddEdge(&graph.Edge{FromID: e.FromID, ToID: targetID, Type: e.Type})
+				}
+			}
 		}
 	}
+}
 
-	g.RemoveEdges(toRemove)
-	for _, e := range toAdd {
-		g.AddEdge(e)
+// resolveImportEdge maps a Go module import path to file nodes in the matching dir.
+func resolveImportEdge(g *graph.Graph, e *graph.Edge, importPath, modulePath string, dirFiles map[string][]string) {
+	if modulePath == "" {
+		return
 	}
+	if !strings.HasPrefix(importPath, modulePath+"/") {
+		return // external dependency
+	}
+	relDir := strings.TrimPrefix(importPath, modulePath+"/")
+	for _, fileID := range dirFiles[relDir] {
+		g.AddEdge(&graph.Edge{FromID: e.FromID, ToID: fileID, Type: graph.EdgeImports})
+	}
+}
+
+// readGoModulePath reads the module path from go.mod.
+func readGoModulePath(repoPath string) string {
+	f, err := os.Open(filepath.Join(repoPath, "go.mod"))
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	s := bufio.NewScanner(f)
+	for s.Scan() {
+		line := strings.TrimSpace(s.Text())
+		if strings.HasPrefix(line, "module ") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "module "))
+		}
+	}
+	return ""
 }
 
 // buildContainmentHierarchy adds REPO → DIR → FILE containment edges.

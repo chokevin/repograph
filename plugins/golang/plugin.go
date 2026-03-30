@@ -39,7 +39,7 @@ func (p *Plugin) Parse(filePath string, source []byte, root *sitter.Node) *graph
 			}
 			pr.Edges = append(pr.Edges, &graph.Edge{
 				FromID: fileID,
-				ToID:   graph.FileNodeID(importPath),
+				ToID:   "unresolved-import:" + importPath,
 				Type:   graph.EdgeImports,
 			})
 
@@ -150,14 +150,16 @@ func (p *Plugin) Parse(filePath string, source []byte, root *sitter.Node) *graph
 		case "call_expression":
 			name := goCallName(n, source)
 			if name != "" {
-				pr.Edges = append(pr.Edges, &graph.Edge{FromID: fileID, ToID: "unresolved:" + name, Type: graph.EdgeCalls})
+				scope := findEnclosingFunc(n, source, filePath)
+				pr.Edges = append(pr.Edges, &graph.Edge{FromID: scope, ToID: "unresolved:" + name, Type: graph.EdgeCalls})
 			}
 
 		// ── Identifier references ────────────────────────────────────────
 		case "identifier":
 			if isGoReference(n) {
 				name := graph.NodeText(n, source)
-				pr.Edges = append(pr.Edges, &graph.Edge{FromID: fileID, ToID: "unresolved:" + name, Type: graph.EdgeReferences})
+				scope := findEnclosingFunc(n, source, filePath)
+				pr.Edges = append(pr.Edges, &graph.Edge{FromID: scope, ToID: "unresolved:" + name, Type: graph.EdgeReferences})
 			}
 		}
 	})
@@ -176,7 +178,6 @@ func extractReceiver(n *sitter.Node, source []byte) string {
 	if params == nil {
 		return ""
 	}
-	// Walk to find the type_identifier inside the parameter list.
 	var typeName string
 	graph.WalkTree(params, func(c *sitter.Node) {
 		if c.Type() == "type_identifier" && typeName == "" {
@@ -220,4 +221,24 @@ func isGoReference(n *sitter.Node) bool {
 		return false
 	}
 	return true
+}
+
+// findEnclosingFunc walks up the AST to find the enclosing function or method.
+func findEnclosingFunc(n *sitter.Node, source []byte, filePath string) string {
+	for p := n.Parent(); p != nil; p = p.Parent() {
+		switch p.Type() {
+		case "function_declaration":
+			nameNode := p.ChildByFieldName("name")
+			if nameNode != nil {
+				return graph.FuncNodeID(filePath, graph.NodeText(nameNode, source))
+			}
+		case "method_declaration":
+			nameNode := p.ChildByFieldName("name")
+			if nameNode != nil {
+				receiver := extractReceiver(p, source)
+				return graph.MethodNodeID(filePath, receiver, graph.NodeText(nameNode, source))
+			}
+		}
+	}
+	return graph.FileNodeID(filePath)
 }

@@ -194,14 +194,16 @@ func (p *Plugin) Parse(filePath string, source []byte, root *sitter.Node) *graph
 		case "call_expression":
 			name := callName(n, source)
 			if name != "" && name != "require" {
-				pr.Edges = append(pr.Edges, &graph.Edge{FromID: fileID, ToID: "unresolved:" + name, Type: graph.EdgeCalls})
+				scope := jsFindEnclosingFunc(n, source, filePath)
+				pr.Edges = append(pr.Edges, &graph.Edge{FromID: scope, ToID: "unresolved:" + name, Type: graph.EdgeCalls})
 			}
 
 		// ── Identifier references ────────────────────────────────────────
 		case "identifier":
 			if isReference(n) {
 				name := graph.NodeText(n, source)
-				pr.Edges = append(pr.Edges, &graph.Edge{FromID: fileID, ToID: "unresolved:" + name, Type: graph.EdgeReferences})
+				scope := jsFindEnclosingFunc(n, source, filePath)
+				pr.Edges = append(pr.Edges, &graph.Edge{FromID: scope, ToID: "unresolved:" + name, Type: graph.EdgeReferences})
 			}
 		}
 	})
@@ -271,4 +273,39 @@ func isReference(n *sitter.Node) bool {
 		return false
 	}
 	return true
+}
+
+// jsFindEnclosingFunc walks up the AST to find the enclosing function, method, or arrow function.
+func jsFindEnclosingFunc(n *sitter.Node, source []byte, filePath string) string {
+	for p := n.Parent(); p != nil; p = p.Parent() {
+		switch p.Type() {
+		case "function_declaration":
+			nameNode := graph.ChildByType(p, "identifier")
+			if nameNode != nil {
+				return graph.FuncNodeID(filePath, graph.NodeText(nameNode, source))
+			}
+		case "method_definition":
+			mName := methodName(p, source)
+			if mName != "" {
+				// Find enclosing class.
+				for cp := p.Parent(); cp != nil; cp = cp.Parent() {
+					if cp.Type() == "class_declaration" {
+						classNameNode := graph.ChildByType(cp, "identifier")
+						if classNameNode != nil {
+							return graph.MethodNodeID(filePath, graph.NodeText(classNameNode, source), mName)
+						}
+					}
+				}
+			}
+		case "arrow_function", "function":
+			// Named arrow/function expressions: const foo = () => {}
+			if pp := p.Parent(); pp != nil && pp.Type() == "variable_declarator" {
+				nameNode := graph.ChildByType(pp, "identifier")
+				if nameNode != nil {
+					return graph.FuncNodeID(filePath, graph.NodeText(nameNode, source))
+				}
+			}
+		}
+	}
+	return graph.FileNodeID(filePath)
 }
