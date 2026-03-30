@@ -163,11 +163,16 @@ func resolveEdges(g *graph.Graph, unresolved []*graph.Edge, repoPath string) {
 	// Read go.mod for import path resolution.
 	modulePath := readGoModulePath(repoPath)
 
-	// Build dir → file index for Go import resolution.
-	dirFiles := make(map[string][]string) // relative dir → []file node IDs
+	// Build dir → file index for Go import resolution (exclude test files).
+	dirFiles := make(map[string][]string)
+	dirTestFiles := make(map[string][]string)
 	for _, n := range g.NodesByType(graph.NodeFile) {
 		dir := filepath.Dir(n.FilePath)
-		dirFiles[dir] = append(dirFiles[dir], n.ID)
+		if strings.HasSuffix(n.FilePath, "_test.go") {
+			dirTestFiles[dir] = append(dirTestFiles[dir], n.ID)
+		} else {
+			dirFiles[dir] = append(dirFiles[dir], n.ID)
+		}
 	}
 
 	for _, e := range unresolved {
@@ -175,10 +180,14 @@ func resolveEdges(g *graph.Graph, unresolved []*graph.Edge, repoPath string) {
 			continue
 		}
 
+		// Determine if the importing file is a test file.
+		fromNode := g.Node(e.FromID)
+		isTestImporter := fromNode != nil && strings.HasSuffix(fromNode.FilePath, "_test.go")
+
 		switch {
 		case strings.HasPrefix(e.ToID, "unresolved-import:"):
 			importPath := strings.TrimPrefix(e.ToID, "unresolved-import:")
-			resolveImportEdge(g, e, importPath, modulePath, dirFiles)
+			resolveImportEdge(g, e, importPath, modulePath, dirFiles, dirTestFiles, isTestImporter)
 
 		case strings.HasPrefix(e.ToID, "unresolved:"):
 			name := strings.TrimPrefix(e.ToID, "unresolved:")
@@ -212,7 +221,7 @@ func resolveEdges(g *graph.Graph, unresolved []*graph.Edge, repoPath string) {
 }
 
 // resolveImportEdge maps a Go module import path to file nodes in the matching dir.
-func resolveImportEdge(g *graph.Graph, e *graph.Edge, importPath, modulePath string, dirFiles map[string][]string) {
+func resolveImportEdge(g *graph.Graph, e *graph.Edge, importPath, modulePath string, dirFiles, dirTestFiles map[string][]string, isTestImporter bool) {
 	if modulePath == "" {
 		return
 	}
@@ -222,6 +231,12 @@ func resolveImportEdge(g *graph.Graph, e *graph.Edge, importPath, modulePath str
 	relDir := strings.TrimPrefix(importPath, modulePath+"/")
 	for _, fileID := range dirFiles[relDir] {
 		g.AddEdge(&graph.Edge{FromID: e.FromID, ToID: fileID, Type: graph.EdgeImports})
+	}
+	// Test files can also import test-only symbols.
+	if isTestImporter {
+		for _, fileID := range dirTestFiles[relDir] {
+			g.AddEdge(&graph.Edge{FromID: e.FromID, ToID: fileID, Type: graph.EdgeImports})
+		}
 	}
 }
 
