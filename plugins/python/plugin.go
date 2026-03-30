@@ -162,14 +162,16 @@ func (p *Plugin) Parse(filePath string, source []byte, root *sitter.Node) *graph
 		case "call":
 			name := pyCallName(n, source)
 			if name != "" {
-				pr.Edges = append(pr.Edges, &graph.Edge{FromID: fileID, ToID: "unresolved:" + name, Type: graph.EdgeCalls})
+				scope := pyFindEnclosingFunc(n, source, filePath)
+				pr.Edges = append(pr.Edges, &graph.Edge{FromID: scope, ToID: "unresolved:" + name, Type: graph.EdgeCalls})
 			}
 
 		// ── Identifier references ────────────────────────────────────────
 		case "identifier":
 			if isPyReference(n) {
 				name := graph.NodeText(n, source)
-				pr.Edges = append(pr.Edges, &graph.Edge{FromID: fileID, ToID: "unresolved:" + name, Type: graph.EdgeReferences})
+				scope := pyFindEnclosingFunc(n, source, filePath)
+				pr.Edges = append(pr.Edges, &graph.Edge{FromID: scope, ToID: "unresolved:" + name, Type: graph.EdgeReferences})
 			}
 		}
 	})
@@ -225,4 +227,22 @@ func isPyReference(n *sitter.Node) bool {
 		return false
 	}
 	return true
+}
+
+// pyFindEnclosingFunc walks up the AST to find the enclosing function or method.
+func pyFindEnclosingFunc(n *sitter.Node, source []byte, filePath string) string {
+	for p := n.Parent(); p != nil; p = p.Parent() {
+		if p.Type() == "function_definition" {
+			nameNode := p.ChildByFieldName("name")
+			if nameNode != nil {
+				name := graph.NodeText(nameNode, source)
+				className := enclosingClassName(p, source)
+				if className != "" {
+					return graph.MethodNodeID(filePath, className, name)
+				}
+				return graph.FuncNodeID(filePath, name)
+			}
+		}
+	}
+	return graph.FileNodeID(filePath)
 }
