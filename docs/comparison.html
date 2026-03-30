@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>repograph vs CGM — Architecture Comparison</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0d1117; color: #c9d1d9; padding: 32px; }
+  h1 { text-align: center; font-size: 28px; margin-bottom: 8px; color: #f0f6fc; }
+  .subtitle { text-align: center; color: #8b949e; margin-bottom: 40px; font-size: 15px; }
+  
+  .columns { display: flex; gap: 32px; max-width: 1400px; margin: 0 auto; }
+  .col { flex: 1; min-width: 0; }
+  .col-header { text-align: center; padding: 16px; border-radius: 12px 12px 0 0; font-size: 20px; font-weight: 700; }
+  .col-header.rg { background: linear-gradient(135deg, #238636, #1a7f37); }
+  .col-header.cgm { background: linear-gradient(135deg, #8957e5, #6e40c9); }
+  .col-header small { display: block; font-size: 12px; font-weight: 400; opacity: 0.8; margin-top: 4px; }
+  
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 0 0 12px 12px; padding: 24px; margin-bottom: 24px; }
+  .section-title { font-size: 13px; text-transform: uppercase; letter-spacing: 1.2px; color: #8b949e; margin-bottom: 12px; font-weight: 600; }
+  
+  .pipeline { display: flex; flex-direction: column; gap: 8px; }
+  .pipe-step { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 8px; font-size: 13px; }
+  .pipe-step .icon { font-size: 18px; width: 28px; text-align: center; flex-shrink: 0; }
+  .pipe-step .label { font-weight: 600; color: #f0f6fc; }
+  .pipe-step .desc { color: #8b949e; font-size: 12px; }
+  .pipe-arrow { text-align: center; color: #484f58; font-size: 16px; line-height: 1; }
+  
+  .rg-step { background: #0d1f0d; border: 1px solid #238636; }
+  .cgm-step { background: #1a0d2e; border: 1px solid #8957e5; }
+  .shared-step { background: #1a1a0d; border: 1px solid #d29922; }
+  .missing-step { background: #160b0b; border: 1px dashed #484f58; opacity: 0.5; }
+  
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .stat { background: #0d1117; border: 1px solid #30363d; border-radius: 8px; padding: 14px; text-align: center; }
+  .stat .val { font-size: 24px; font-weight: 700; color: #f0f6fc; }
+  .stat .lbl { font-size: 11px; color: #8b949e; margin-top: 2px; }
+  .stat.green .val { color: #3fb950; }
+  .stat.purple .val { color: #bc8cff; }
+  
+  .compare-table { width: 100%; max-width: 1400px; margin: 40px auto 0; border-collapse: collapse; font-size: 14px; }
+  .compare-table th { background: #161b22; padding: 12px 16px; text-align: left; border-bottom: 2px solid #30363d; color: #f0f6fc; }
+  .compare-table th:nth-child(2) { color: #3fb950; }
+  .compare-table th:nth-child(3) { color: #bc8cff; }
+  .compare-table td { padding: 10px 16px; border-bottom: 1px solid #21262d; }
+  .compare-table tr:hover td { background: #161b22; }
+  .compare-table .feat { color: #c9d1d9; font-weight: 500; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+  .badge.green { background: #0d1f0d; color: #3fb950; border: 1px solid #238636; }
+  .badge.purple { background: #1a0d2e; color: #bc8cff; border: 1px solid #8957e5; }
+  .badge.yellow { background: #1a1a0d; color: #d29922; border: 1px solid #d29922; }
+  .badge.red { background: #160b0b; color: #f85149; border: 1px solid #f85149; }
+  .badge.gray { background: #161b22; color: #8b949e; border: 1px solid #30363d; }
+  
+  .graph-viz { margin: 24px auto; max-width: 1400px; }
+  .graph-viz h2 { text-align: center; margin-bottom: 16px; color: #f0f6fc; }
+  svg text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+</style>
+</head>
+<body>
+
+<h1>⚡ repograph vs 🔮 CGM</h1>
+<p class="subtitle">Architecture comparison — pluggable Go binary vs research Python framework</p>
+
+<div class="columns">
+  <!-- REPOGRAPH -->
+  <div class="col">
+    <div class="col-header rg">⚡ repograph <small>Go • Single binary • Any LLM</small></div>
+    <div class="card">
+      <div class="section-title">Pipeline</div>
+      <div class="pipeline">
+        <div class="pipe-step rg-step">
+          <span class="icon">📂</span>
+          <div><span class="label">Scanner</span><br><span class="desc">Walk repo, .gitignore, language detection</span></div>
+        </div>
+        <div class="pipe-arrow">↓</div>
+        <div class="pipe-step rg-step">
+          <span class="icon">🌳</span>
+          <div><span class="label">Tree-sitter Parse</span><br><span class="desc">Concurrent workers (8x), per-file AST extraction</span></div>
+        </div>
+        <div class="pipe-arrow">↓</div>
+        <div class="pipe-step rg-step">
+          <span class="icon">🔌</span>
+          <div><span class="label">Language Plugins</span><br><span class="desc">JS/TS • Go • Python • (your plugin here)</span></div>
+        </div>
+        <div class="pipe-arrow">↓</div>
+        <div class="pipe-step rg-step">
+          <span class="icon">🔗</span>
+          <div><span class="label">Edge Resolution</span><br><span class="desc">Resolve cross-file calls, build containment hierarchy</span></div>
+        </div>
+        <div class="pipe-arrow">↓</div>
+        <div class="pipe-step rg-step">
+          <span class="icon">🔍</span>
+          <div><span class="label">Query Engine</span><br><span class="desc">Related files, keyword search, subgraph extraction</span></div>
+        </div>
+        <div class="pipe-arrow">↓</div>
+        <div class="pipe-step rg-step">
+          <span class="icon">📝</span>
+          <div><span class="label">Prompt Formatter</span><br><span class="desc">LLM-ready text output for any model</span></div>
+        </div>
+        <div class="pipe-arrow" style="height:8px"></div>
+        <div class="pipe-step missing-step">
+          <span class="icon">🧠</span>
+          <div><span class="label">Embeddings</span><br><span class="desc">Planned — semantic search via local/API embeddings</span></div>
+        </div>
+        <div class="pipe-step missing-step">
+          <span class="icon">🔄</span>
+          <div><span class="label">R4 Pipeline</span><br><span class="desc">Planned — Rewrite→Retrieve→Rerank→Read</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="section-title">Performance (200-file repo)</div>
+      <div class="stats">
+        <div class="stat green"><div class="val">733ms</div><div class="lbl">Build Time</div></div>
+        <div class="stat green"><div class="val">3,020</div><div class="lbl">Nodes</div></div>
+        <div class="stat green"><div class="val">3,757</div><div class="lbl">Edges</div></div>
+        <div class="stat green"><div class="val">0 MB</div><div class="lbl">Extra RAM</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CGM -->
+  <div class="col">
+    <div class="col-header cgm">🔮 CGM <small>Python • PyTorch • Fine-tuned 72B model</small></div>
+    <div class="card">
+      <div class="section-title">Pipeline (R4 Chain)</div>
+      <div class="pipeline">
+        <div class="pipe-step cgm-step">
+          <span class="icon">📂</span>
+          <div><span class="label">Code Graph Generator</span><br><span class="desc">Parse repo into graph structure</span></div>
+        </div>
+        <div class="pipe-arrow">↓</div>
+        <div class="pipe-step cgm-step">
+          <span class="icon">🧬</span>
+          <div><span class="label">Node Embedding (CGE-large)</span><br><span class="desc">CodeT5+ embeddings for every node</span></div>
+        </div>
+        <div class="pipe-arrow">↓</div>
+        <div class="pipe-step cgm-step">
+          <span class="icon">✍️</span>
+          <div><span class="label">① Rewriter</span><br><span class="desc">Extract keywords + queries from issue description</span></div>
+        </div>
+        <div class="pipe-arrow">↓</div>
+        <div class="pipe-step cgm-step">
+          <span class="icon">🎯</span>
+          <div><span class="label">② Retriever</span><br><span class="desc">Match anchor nodes, extract heuristic subgraph</span></div>
+        </div>
+        <div class="pipe-arrow">↓</div>
+        <div class="pipe-step cgm-step">
+          <span class="icon">⚖️</span>
+          <div><span class="label">③ Reranker</span><br><span class="desc">Score + rank files most likely to need changes</span></div>
+        </div>
+        <div class="pipe-arrow">↓</div>
+        <div class="pipe-step cgm-step">
+          <span class="icon">🤖</span>
+          <div><span class="label">④ Reader (CGM-72B)</span><br><span class="desc">Graph-aware attention mask → generate code patch</span></div>
+        </div>
+        <div class="pipe-arrow" style="height: 8px"></div>
+        <div class="pipe-step shared-step">
+          <span class="icon">⚠️</span>
+          <div><span class="label">Requirements</span><br><span class="desc">GPU (A100+), Python 3.8+, PyTorch, 72B model weights</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="section-title">Performance (SWE-Bench)</div>
+      <div class="stats">
+        <div class="stat purple"><div class="val">~min</div><div class="lbl">Build + Embed Time</div></div>
+        <div class="stat purple"><div class="val">44%</div><div class="lbl">SWE-Bench-Lite</div></div>
+        <div class="stat purple"><div class="val">72B</div><div class="lbl">Model Parameters</div></div>
+        <div class="stat purple"><div class="val">A100</div><div class="lbl">GPU Required</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- GRAPH MODEL COMPARISON SVG -->
+<div class="graph-viz">
+  <h2>Graph Model Comparison</h2>
+  <svg viewBox="0 0 1400 420" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="arrowG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#3fb950"/>
+      </marker>
+      <marker id="arrowO" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#f0883e"/>
+      </marker>
+      <marker id="arrowP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#bc8cff"/>
+      </marker>
+    </defs>
+
+    <!-- repograph side -->
+    <rect x="20" y="10" width="660" height="400" rx="12" fill="#0d1f0d" stroke="#238636" stroke-width="1.5" opacity="0.3"/>
+    <text x="350" y="38" fill="#3fb950" font-size="16" font-weight="700" text-anchor="middle">repograph — 7 node types, 7 edge types</text>
+    
+    <rect x="290" y="55" width="120" height="32" rx="6" fill="#161b22" stroke="#8b949e"/>
+    <text x="350" y="76" fill="#c9d1d9" font-size="12" text-anchor="middle">📦 repo</text>
+    
+    <rect x="140" y="115" width="110" height="28" rx="6" fill="#161b22" stroke="#d29922"/>
+    <text x="195" y="134" fill="#d29922" font-size="11" text-anchor="middle">📁 dir:src/</text>
+    <rect x="300" y="115" width="130" height="28" rx="6" fill="#161b22" stroke="#d29922"/>
+    <text x="365" y="134" fill="#d29922" font-size="11" text-anchor="middle">📁 dir:src/auth/</text>
+    <rect x="470" y="115" width="120" height="28" rx="6" fill="#161b22" stroke="#d29922"/>
+    <text x="530" y="134" fill="#d29922" font-size="11" text-anchor="middle">📁 dir:tests/</text>
+    
+    <line x1="350" y1="87" x2="195" y2="115" stroke="#484f58" stroke-dasharray="4"/>
+    <line x1="350" y1="87" x2="365" y2="115" stroke="#484f58" stroke-dasharray="4"/>
+    <line x1="350" y1="87" x2="530" y2="115" stroke="#484f58" stroke-dasharray="4"/>
+    
+    <rect x="60" y="175" width="130" height="28" rx="6" fill="#161b22" stroke="#58a6ff"/>
+    <text x="125" y="194" fill="#58a6ff" font-size="11" text-anchor="middle">📄 login.ts</text>
+    <rect x="220" y="175" width="130" height="28" rx="6" fill="#161b22" stroke="#58a6ff"/>
+    <text x="285" y="194" fill="#58a6ff" font-size="11" text-anchor="middle">📄 users.ts</text>
+    <rect x="380" y="175" width="130" height="28" rx="6" fill="#161b22" stroke="#58a6ff"/>
+    <text x="445" y="194" fill="#58a6ff" font-size="11" text-anchor="middle">📄 jwt.ts</text>
+    <rect x="530" y="175" width="130" height="28" rx="6" fill="#161b22" stroke="#58a6ff"/>
+    <text x="595" y="194" fill="#58a6ff" font-size="11" text-anchor="middle">📄 auth.test.ts</text>
+    
+    <line x1="365" y1="143" x2="125" y2="175" stroke="#484f58" stroke-dasharray="4"/>
+    <line x1="365" y1="143" x2="285" y2="175" stroke="#484f58" stroke-dasharray="4"/>
+    <line x1="365" y1="143" x2="445" y2="175" stroke="#484f58" stroke-dasharray="4"/>
+    <line x1="530" y1="143" x2="595" y2="175" stroke="#484f58" stroke-dasharray="4"/>
+    
+    <path d="M 125 203 Q 125 220, 285 203" fill="none" stroke="#3fb950" stroke-width="2" marker-end="url(#arrowG)"/>
+    <path d="M 125 203 Q 125 230, 445 203" fill="none" stroke="#3fb950" stroke-width="2" marker-end="url(#arrowG)"/>
+    <path d="M 595 203 Q 595 225, 125 203" fill="none" stroke="#3fb950" stroke-width="1.5" stroke-dasharray="6" marker-end="url(#arrowG)"/>
+    
+    <rect x="40" y="260" width="100" height="26" rx="6" fill="#0d1f0d" stroke="#3fb950"/>
+    <text x="90" y="278" fill="#3fb950" font-size="10" text-anchor="middle">fn login()</text>
+    <rect x="150" y="260" width="100" height="26" rx="6" fill="#0d1f0d" stroke="#3fb950"/>
+    <text x="200" y="278" fill="#3fb950" font-size="10" text-anchor="middle">fn logout()</text>
+    <rect x="270" y="260" width="110" height="26" rx="6" fill="#0d1f0d" stroke="#3fb950"/>
+    <text x="325" y="278" fill="#3fb950" font-size="10" text-anchor="middle">class UserModel</text>
+    <rect x="395" y="260" width="100" height="26" rx="6" fill="#0d1f0d" stroke="#3fb950"/>
+    <text x="445" y="278" fill="#3fb950" font-size="10" text-anchor="middle">fn signJWT()</text>
+    
+    <line x1="125" y1="203" x2="90" y2="260" stroke="#58a6ff" stroke-width="1" stroke-dasharray="3"/>
+    <line x1="125" y1="203" x2="200" y2="260" stroke="#58a6ff" stroke-width="1" stroke-dasharray="3"/>
+    <line x1="285" y1="203" x2="325" y2="260" stroke="#58a6ff" stroke-width="1" stroke-dasharray="3"/>
+    <line x1="445" y1="203" x2="445" y2="260" stroke="#58a6ff" stroke-width="1" stroke-dasharray="3"/>
+    
+    <path d="M 90 286 C 90 320, 325 320, 325 286" fill="none" stroke="#f0883e" stroke-width="2" marker-end="url(#arrowO)"/>
+    <path d="M 90 286 C 90 310, 445 310, 445 286" fill="none" stroke="#f0883e" stroke-width="2" marker-end="url(#arrowO)"/>
+    
+    <rect x="520" y="260" width="130" height="26" rx="6" fill="#1a1a0d" stroke="#d29922"/>
+    <text x="585" y="278" fill="#d29922" font-size="10" text-anchor="middle">var TOKEN_EXPIRY</text>
+    
+    <path d="M 445 286 C 445 305, 585 305, 585 286" fill="none" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="5" marker-end="url(#arrowP)"/>
+    
+    <rect x="40" y="330" width="620" height="70" rx="8" fill="#0d1117" stroke="#30363d"/>
+    <line x1="60" y1="352" x2="90" y2="352" stroke="#3fb950" stroke-width="2"/>
+    <text x="95" y="356" fill="#8b949e" font-size="10">imports</text>
+    <line x1="160" y1="352" x2="190" y2="352" stroke="#f0883e" stroke-width="2"/>
+    <text x="195" y="356" fill="#8b949e" font-size="10">calls</text>
+    <line x1="240" y1="352" x2="270" y2="352" stroke="#58a6ff" stroke-width="1" stroke-dasharray="3"/>
+    <text x="275" y="356" fill="#8b949e" font-size="10">defines</text>
+    <line x1="330" y1="352" x2="360" y2="352" stroke="#484f58" stroke-dasharray="4"/>
+    <text x="365" y="356" fill="#8b949e" font-size="10">contains</text>
+    <line x1="430" y1="352" x2="460" y2="352" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="5"/>
+    <text x="465" y="356" fill="#8b949e" font-size="10">references</text>
+    <line x1="540" y1="352" x2="570" y2="352" stroke="#f85149" stroke-width="2"/>
+    <text x="575" y="356" fill="#8b949e" font-size="10">inherits</text>
+    <text x="60" y="385" fill="#58a6ff" font-size="10">📄 file</text>
+    <text x="120" y="385" fill="#3fb950" font-size="10">⚡ function</text>
+    <text x="210" y="385" fill="#3fb950" font-size="10">🏛 class</text>
+    <text x="280" y="385" fill="#d29922" font-size="10">📌 variable</text>
+    <text x="370" y="385" fill="#d29922" font-size="10">📁 directory</text>
+    <text x="465" y="385" fill="#8b949e" font-size="10">📦 repo</text>
+
+    <!-- CGM side -->
+    <rect x="720" y="10" width="660" height="400" rx="12" fill="#1a0d2e" stroke="#8957e5" stroke-width="1.5" opacity="0.3"/>
+    <text x="1050" y="38" fill="#bc8cff" font-size="16" font-weight="700" text-anchor="middle">CGM — 7 node types, 5 edge types + embeddings</text>
+    
+    <rect x="990" y="55" width="120" height="32" rx="6" fill="#161b22" stroke="#8b949e"/>
+    <text x="1050" y="76" fill="#c9d1d9" font-size="12" text-anchor="middle">📦 REPO</text>
+    
+    <rect x="840" y="115" width="110" height="28" rx="6" fill="#161b22" stroke="#d29922"/>
+    <text x="895" y="134" fill="#d29922" font-size="11" text-anchor="middle">📁 DIR</text>
+    <rect x="1000" y="115" width="110" height="28" rx="6" fill="#161b22" stroke="#d29922"/>
+    <text x="1055" y="134" fill="#d29922" font-size="11" text-anchor="middle">📁 DIR</text>
+    
+    <line x1="1050" y1="87" x2="895" y2="115" stroke="#484f58" stroke-dasharray="4"/>
+    <line x1="1050" y1="87" x2="1055" y2="115" stroke="#484f58" stroke-dasharray="4"/>
+    
+    <!-- File nodes with embedding glow -->
+    <circle cx="825" cy="189" r="24" fill="none" stroke="#8957e5" stroke-width="1.5" opacity="0.5"/>
+    <circle cx="985" cy="189" r="24" fill="none" stroke="#8957e5" stroke-width="1.5" opacity="0.5"/>
+    <circle cx="1145" cy="189" r="24" fill="none" stroke="#8957e5" stroke-width="1.5" opacity="0.5"/>
+    
+    <rect x="760" y="175" width="130" height="28" rx="6" fill="#161b22" stroke="#58a6ff"/>
+    <text x="825" y="194" fill="#58a6ff" font-size="11" text-anchor="middle">📄 FILE</text>
+    <rect x="920" y="175" width="130" height="28" rx="6" fill="#161b22" stroke="#58a6ff"/>
+    <text x="985" y="194" fill="#58a6ff" font-size="11" text-anchor="middle">📄 FILE</text>
+    <rect x="1080" y="175" width="130" height="28" rx="6" fill="#161b22" stroke="#58a6ff"/>
+    <text x="1145" y="194" fill="#58a6ff" font-size="11" text-anchor="middle">📄 FILE</text>
+    
+    <line x1="895" y1="143" x2="825" y2="175" stroke="#484f58" stroke-dasharray="4"/>
+    <line x1="1055" y1="143" x2="985" y2="175" stroke="#484f58" stroke-dasharray="4"/>
+    <line x1="1055" y1="143" x2="1145" y2="175" stroke="#484f58" stroke-dasharray="4"/>
+    
+    <path d="M 825 203 Q 825 220, 985 203" fill="none" stroke="#3fb950" stroke-width="2" marker-end="url(#arrowG)"/>
+    
+    <!-- Symbol nodes with embedding glow -->
+    <circle cx="790" cy="273" r="22" fill="none" stroke="#8957e5" stroke-width="1.5" opacity="0.5"/>
+    <circle cx="920" cy="273" r="22" fill="none" stroke="#8957e5" stroke-width="1.5" opacity="0.5"/>
+    <circle cx="1050" cy="273" r="22" fill="none" stroke="#8957e5" stroke-width="1.5" opacity="0.5"/>
+    <circle cx="1185" cy="273" r="22" fill="none" stroke="#8957e5" stroke-width="1.5" opacity="0.5"/>
+    
+    <rect x="740" y="260" width="100" height="26" rx="6" fill="#1a0d2e" stroke="#bc8cff"/>
+    <text x="790" y="278" fill="#bc8cff" font-size="10" text-anchor="middle">FUNCTION</text>
+    <rect x="870" y="260" width="100" height="26" rx="6" fill="#1a0d2e" stroke="#bc8cff"/>
+    <text x="920" y="278" fill="#bc8cff" font-size="10" text-anchor="middle">CLASS</text>
+    <rect x="1000" y="260" width="100" height="26" rx="6" fill="#1a0d2e" stroke="#bc8cff"/>
+    <text x="1050" y="278" fill="#bc8cff" font-size="10" text-anchor="middle">VARIABLE</text>
+    <rect x="1130" y="260" width="110" height="26" rx="6" fill="#1a0d2e" stroke="#bc8cff"/>
+    <text x="1185" y="278" fill="#bc8cff" font-size="10" text-anchor="middle">ATTRIBUTE</text>
+    
+    <path d="M 790 286 C 790 310, 920 310, 920 286" fill="none" stroke="#f0883e" stroke-width="2" marker-end="url(#arrowO)"/>
+    <path d="M 790 286 C 790 315, 1050 315, 1050 286" fill="none" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="5" marker-end="url(#arrowP)"/>
+    <path d="M 920 286 C 920 305, 1185 305, 1185 286" fill="none" stroke="#f85149" stroke-width="2"/>
+    
+    <!-- CGM special: attention mask box -->
+    <rect x="740" y="325" width="620" height="75" rx="8" fill="#0d1117" stroke="#8957e5" stroke-dasharray="4"/>
+    <text x="1050" y="348" fill="#bc8cff" font-size="12" font-weight="600" text-anchor="middle">🧠 Graph-Aware Attention Mask</text>
+    <text x="1050" y="366" fill="#8b949e" font-size="10" text-anchor="middle">LLM attention follows graph adjacency — nodes attend to neighbors, not sequence position</text>
+    <text x="1050" y="384" fill="#8b949e" font-size="10" text-anchor="middle">Requires fine-tuned CGM-72B model • Not transferable to other LLMs</text>
+    
+    <!-- Embedding label -->
+    <circle cx="785" cy="135" r="8" fill="none" stroke="#8957e5" stroke-width="1.5" opacity="0.7"/>
+    <text x="800" y="139" fill="#8b949e" font-size="9">= CodeT5+ embedding vector per node</text>
+  </svg>
+</div>
+
+<!-- Detailed comparison table -->
+<table class="compare-table">
+  <tr><th>Feature</th><th>⚡ repograph</th><th>🔮 CGM</th></tr>
+  <tr><td class="feat">Language</td><td><span class="badge green">Go</span> single binary, CGo for tree-sitter</td><td><span class="badge purple">Python</span> PyTorch + transformers + accelerate</td></tr>
+  <tr><td class="feat">LLM compatibility</td><td><span class="badge green">Any LLM</span> — text injection into prompts</td><td><span class="badge red">CGM-72B only</span> — custom attention mask</td></tr>
+  <tr><td class="feat">Plugin architecture</td><td><span class="badge green">Yes</span> — implement LanguagePlugin interface</td><td><span class="badge red">No</span> — hardcoded Python parser</td></tr>
+  <tr><td class="feat">Graph build speed</td><td><span class="badge green">&lt;1s</span> for 200 files</td><td><span class="badge yellow">Minutes</span> (parse + embed all nodes)</td></tr>
+  <tr><td class="feat">GPU required</td><td><span class="badge green">No</span></td><td><span class="badge red">Yes</span> — A100 for 72B model</td></tr>
+  <tr><td class="feat">Node types</td><td><span class="badge green">7</span> repo, dir, file, class, func, method, variable</td><td><span class="badge purple">7</span> repo, dir, file, class, func, method, attribute</td></tr>
+  <tr><td class="feat">Edge types</td><td><span class="badge green">7</span> contains, imports, calls, references, inherits, defines, method_of</td><td><span class="badge purple">5</span> contains, imports, calls, references, inherits</td></tr>
+  <tr><td class="feat">Node embeddings</td><td><span class="badge yellow">Planned</span></td><td><span class="badge purple">Yes</span> — CodeT5+ / CGE-large per node</td></tr>
+  <tr><td class="feat">Semantic search</td><td><span class="badge yellow">Keyword only</span></td><td><span class="badge purple">Yes</span> — embedding similarity</td></tr>
+  <tr><td class="feat">R4 pipeline</td><td><span class="badge yellow">Planned</span></td><td><span class="badge purple">Yes</span> — Rewriter→Retriever→Reranker→Reader</td></tr>
+  <tr><td class="feat">SWE-Bench score</td><td><span class="badge gray">N/A</span> (graph builder, not solver)</td><td><span class="badge purple">44%</span> SWE-Bench-Lite</td></tr>
+  <tr><td class="feat">Install</td><td><code style="color:#3fb950">go install ...@latest</code></td><td><code style="color:#bc8cff">pip install + 72B weights download</code></td></tr>
+  <tr><td class="feat">Best for</td><td><span class="badge green">Multi-agent tools</span> needing fast context</td><td><span class="badge purple">Research</span> on end-to-end issue resolution</td></tr>
+</table>
+
+</body>
+</html>
