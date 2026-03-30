@@ -34,6 +34,9 @@ repograph --action=context --query="authentication login JWT"
 
 # Get LLM-ready prompt context for a file
 repograph --action=decompose --file=src/dashboard.js --depth=2
+
+# Get actionable constraints (interfaces, pipelines) for a file
+repograph --action=constraints --file=pkg/providers/docker/provider.go
 ```
 
 ## Output Examples
@@ -97,6 +100,31 @@ SUGGESTIONS:
     Note: [setupPolling] calls updateMetrics — add cross-import after extraction
 ```
 
+### Constraints (for interface and pipeline contracts)
+```
+=== CONSTRAINTS: pkg/providers/docker/provider.go ===
+
+INTERFACES IN GRAPH:
+  Provider (pkg/providers/provider.go)
+    requires: CollectLogs, DeleteNodes, GetAPIServerEndpoint, ListClusters, ListNodes, Provision
+    implemented by: provider (docker/provider.go)
+    implemented by: provider (podman/provider.go)
+
+IMPLEMENTS:
+  provider implements Provider (from pkg/providers/provider.go)
+
+PIPELINES:
+  Cluster() calls NewAction in sequence:
+    1. NewAction → config/config.go
+    2. NewAction → kubeadminit/init.go
+    3. NewAction → installcni/cni.go
+    4. NewAction → loadbalancer/loadbalancer.go
+
+ACTIONABLE CONSTRAINTS:
+  • provider implements Provider (defined in pkg/providers/provider.go). Required methods: CollectLogs, DeleteNodes, GetAPIServerEndpoint, ListClusters, ListNodes, Provision
+  • Function Cluster executes a 4-step pipeline calling NewAction
+```
+
 ## Architecture
 
 ```
@@ -105,6 +133,7 @@ SUGGESTIONS:
 ├─────────────────────────────────────────────┤
 │              Query Engine                    │
 │   QueryRelated │ QueryContext │ FormatPrompt │
+│   QueryDecompose │ QueryConstraints           │
 ├─────────────────────────────────────────────┤
 │           Parser Orchestrator                │
 │    Scanner → Workers → Edge Resolution       │
@@ -213,7 +242,7 @@ repograph [flags]
 
 Flags:
   --repo PATH       Repository path (default: .)
-  --action ACTION   build | summary | related | context | prompt | file | decompose
+  --action ACTION   build | summary | related | context | prompt | file | decompose | constraints
   --file PATH       File path (for related, prompt, file)
   --query TEXT      Search query (for context)
   --depth N         Hop depth for related (default: 2)
@@ -249,6 +278,10 @@ result := query.QueryContext(g, "authentication JWT token")
 // Decompose a file for agent task instructions
 dr := query.QueryDecompose(g, "src/dashboard.js")
 fmt.Print(query.FormatDecompose(dr))
+
+// Get actionable constraints (interfaces, pipelines)
+cr := query.QueryConstraints(g, "pkg/providers/docker/provider.go")
+fmt.Print(query.FormatConstraints(cr))
 ```
 
 ## License

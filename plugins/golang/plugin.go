@@ -105,6 +105,33 @@ func (p *Plugin) Parse(filePath string, source []byte, root *sitter.Node) *graph
 				}
 				name := graph.NodeText(nameNode, source)
 				classID := graph.ClassNodeID(filePath, name)
+
+				// Distinguish interface from struct.
+				kind := "struct"
+				if graph.ChildByType(spec, "interface_type") != nil {
+					kind = "interface"
+				}
+
+				meta := map[string]string{"kind": kind}
+
+				// For interfaces, extract method signatures.
+				if kind == "interface" {
+					ifaceNode := graph.ChildByType(spec, "interface_type")
+					var methods []string
+					for j := 0; j < int(ifaceNode.NamedChildCount()); j++ {
+						child := ifaceNode.NamedChild(j)
+						if child.Type() == "method_elem" {
+							fieldID := graph.ChildByType(child, "field_identifier")
+							if fieldID != nil {
+								methods = append(methods, graph.NodeText(fieldID, source))
+							}
+						}
+					}
+					if len(methods) > 0 {
+						meta["methods"] = strings.Join(methods, ",")
+					}
+				}
+
 				pr.Nodes = append(pr.Nodes, &graph.Node{
 					ID:       classID,
 					Type:     graph.NodeClass,
@@ -114,6 +141,7 @@ func (p *Plugin) Parse(filePath string, source []byte, root *sitter.Node) *graph
 					Exported: graph.IsExported(name, "go"),
 					Line:     int(spec.StartPoint().Row) + 1,
 					EndLine:  int(spec.EndPoint().Row) + 1,
+					Metadata: meta,
 				})
 				pr.Edges = append(pr.Edges, &graph.Edge{FromID: fileID, ToID: classID, Type: graph.EdgeDefines})
 			}

@@ -19,7 +19,7 @@ import (
 
 func main() {
 	repo := flag.String("repo", ".", "Repository path")
-	action := flag.String("action", "", "Action: build, summary, related, context, prompt, file, decompose")
+	action := flag.String("action", "", "Action: build, summary, related, context, prompt, file, decompose, constraints")
 	file := flag.String("file", "", "File path (for related, prompt, file actions)")
 	queryStr := flag.String("query", "", "Search query (for context action)")
 	depth := flag.Int("depth", 2, "Hop depth (for related action)")
@@ -51,6 +51,9 @@ func main() {
 	case "decompose":
 		requireFlag("file", *file)
 		runDecompose(*repo, *file, *format)
+	case "constraints":
+		requireFlag("file", *file)
+		runConstraints(*repo, *file, *format)
 	default:
 		fatal("unknown action: %s", *action)
 	}
@@ -167,6 +170,21 @@ func runDecompose(repoPath, filePath, format string) {
 		enc.Encode(dr)
 	} else {
 		fmt.Print(query.FormatDecompose(dr))
+	}
+}
+
+func runConstraints(repoPath, filePath, format string) {
+	g, err := parser.BuildGraph(repoPath, nil)
+	if err != nil {
+		fatal("build failed: %v", err)
+	}
+	cr := query.QueryConstraints(g, filePath)
+	if format == "json" {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		enc.Encode(cr)
+	} else {
+		fmt.Print(query.FormatConstraints(cr))
 	}
 }
 
