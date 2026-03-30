@@ -33,7 +33,7 @@ repograph --action=related --file=src/auth/login.ts --depth=2
 repograph --action=context --query="authentication login JWT"
 
 # Get LLM-ready prompt context for a file
-repograph --action=prompt --file=src/api/routes.go
+repograph --action=decompose --file=src/dashboard.js --depth=2
 ```
 
 ## Output Examples
@@ -61,6 +61,40 @@ Languages: go, javascript, python
    imported by: src/auth/login.ts, src/api/admin.ts
    class UserModel (exported)
    fn findUser (exported)
+```
+
+### Decompose (for task decomposition with actionable instructions)
+```
+=== DECOMPOSE: src/dashboard.js ===
+12 symbols (5 exported), javascript
+
+CLUSTERS:
+  [renderDashboard] renderDashboard, formatChart, applyTheme (lines 12–89)
+    calls → chart.js: ChartComponent
+    calls → time.js: formatTime
+  [updateMetrics] updateMetrics, fetchAndAggregate (lines 95–180)
+    calls → metrics.js: fetchMetrics, calculateAggregates
+  [setupPolling] setupPolling, teardown (lines 185–230)
+  [helpers] debounce, clamp (lines 232–250)
+
+IMPORTERS:
+  src/pages/home.js uses: renderDashboard
+  src/pages/admin.js uses: renderDashboard, updateMetrics
+
+DEPENDENCIES:
+  src/api/metrics.js: fetchMetrics, calculateAggregates
+  src/components/chart.js: ChartComponent
+
+SUGGESTIONS:
+  Extract [renderDashboard] → src/dashboard-renderdashboard.js
+    Move: renderDashboard, formatChart, applyTheme
+    Update importers: src/pages/admin.js, src/pages/home.js
+    Import: src/components/chart.js: ChartComponent
+  Extract [updateMetrics] → src/dashboard-updatemetrics.js
+    Move: updateMetrics, fetchAndAggregate
+    Update importers: src/pages/admin.js
+    Import: src/api/metrics.js: fetchMetrics, calculateAggregates
+    Note: [setupPolling] calls updateMetrics — add cross-import after extraction
 ```
 
 ## Architecture
@@ -179,7 +213,7 @@ repograph [flags]
 
 Flags:
   --repo PATH       Repository path (default: .)
-  --action ACTION   build | summary | related | context | prompt | file
+  --action ACTION   build | summary | related | context | prompt | file | decompose
   --file PATH       File path (for related, prompt, file)
   --query TEXT      Search query (for context)
   --depth N         Hop depth for related (default: 2)
@@ -211,6 +245,10 @@ prompt := query.FormatForPrompt(result)
 
 // Keyword search
 result := query.QueryContext(g, "authentication JWT token")
+
+// Decompose a file for agent task instructions
+dr := query.QueryDecompose(g, "src/dashboard.js")
+fmt.Print(query.FormatDecompose(dr))
 ```
 
 ## License

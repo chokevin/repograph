@@ -19,7 +19,7 @@ import (
 
 func main() {
 	repo := flag.String("repo", ".", "Repository path")
-	action := flag.String("action", "", "Action: build, summary, related, context, prompt, file")
+	action := flag.String("action", "", "Action: build, summary, related, context, prompt, file, decompose")
 	file := flag.String("file", "", "File path (for related, prompt, file actions)")
 	queryStr := flag.String("query", "", "Search query (for context action)")
 	depth := flag.Int("depth", 2, "Hop depth (for related action)")
@@ -48,6 +48,9 @@ func main() {
 	case "file":
 		requireFlag("file", *file)
 		runFile(*repo, *file, *format)
+	case "decompose":
+		requireFlag("file", *file)
+		runDecompose(*repo, *file, *format)
 	default:
 		fatal("unknown action: %s", *action)
 	}
@@ -147,6 +150,24 @@ func runFile(repoPath, filePath, format string) {
 	}
 	result := query.QueryFile(g, filePath)
 	outputResult(result, format)
+}
+
+func runDecompose(repoPath, filePath, format string) {
+	g, err := parser.BuildGraph(repoPath, nil)
+	if err != nil {
+		fatal("build failed: %v", err)
+	}
+	dr := query.QueryDecompose(g, filePath)
+	if dr == nil {
+		fatal("file not found in graph: %s", filePath)
+	}
+	if format == "json" {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		enc.Encode(dr)
+	} else {
+		fmt.Print(query.FormatDecompose(dr))
+	}
 }
 
 func outputResult(r *query.Result, format string) {
